@@ -45,7 +45,7 @@ export default function Header() {
             <span className="text-xl">💬</span>
           </div>
           <span className="text-xl md:text-2xl font-bold bg-gradient-to-r from-purple-400 to-indigo-400 text-transparent bg-clip-text">
-            Find Chat
+            Tour Sages
           </span>
         </div>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { collection, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -26,7 +26,8 @@ interface Post {
   userId?: string;
   createdAt?: any;
   updatedAt?: any;
-  distance?: string;
+  distance?: number;
+  distanceInKm?: number;
   [key: string]: any;
 }
 
@@ -55,6 +56,8 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [maxDistance, setMaxDistance] = useState<number | null>(null);
+  const [sortBy, setSortBy] = useState<'distance' | 'latest'>('latest');
 
   useEffect(() => {
     // Initialize periodic cleanup
@@ -74,7 +77,7 @@ export default function HomePage() {
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (!user) {
-        router.push('/login');
+        router.push('/messaging/login');
       } else {
         // Type-safe property access with optional chaining and fallbacks
         setCurrentUserName(user?.displayName || user?.email || 'User');
@@ -119,8 +122,8 @@ export default function HomePage() {
     return () => unsubscribe();
   }, [router, searchParams]);
 
-  // Function to calculate distance
-  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): string => {
+  // Function to calculate distance in kilometers
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
     const R = 6371; // Earth's radius in kilometers
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLng = (lng2 - lng1) * Math.PI / 180;
@@ -129,9 +132,11 @@ export default function HomePage() {
       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
       Math.sin(dLng/2) * Math.sin(dLng/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c; // Distance in kilometers
+    return R * c;
+  };
 
-    // Format distance
+  // Function to format distance
+  const formatDistance = (distance: number): string => {
     if (distance < 1) {
       return `${Math.round(distance * 1000)} meters`;
     } else {
@@ -140,6 +145,63 @@ export default function HomePage() {
       return `${km}km ${meters}m`;
     }
   };
+
+  // Update posts with distances when user location changes
+  useEffect(() => {
+    if (userLocation) {
+      setPosts(prevPosts => 
+        prevPosts.map(post => {
+          if (!post.latitude || !post.longitude) return post;
+          
+          const distanceInKm = calculateDistance(
+            userLocation.lat,
+            userLocation.lng,
+            post.latitude,
+            post.longitude
+          );
+          
+          return {
+            ...post,
+            distance: distanceInKm,
+            distanceInKm
+          };
+        })
+      );
+    }
+  }, [userLocation]);
+
+  // Filter and sort posts based on sort option
+  const filteredPosts = useMemo(() => {
+    let result = [...posts];
+
+    // Sort based on the selected option
+    if (sortBy === 'latest') {
+      result.sort((a, b) => {
+        const dateA = new Date(a.createdAt || 0).getTime();
+        const dateB = new Date(b.createdAt || 0).getTime();
+        return dateB - dateA; // Newest first
+      });
+    } else if (sortBy === 'distance' && userLocation) {
+      result.sort((a, b) => {
+        if (!a.latitude || !a.longitude || !b.latitude || !b.longitude) return 0;
+        const distanceA = calculateDistance(
+          userLocation.lat,
+          userLocation.lng,
+          a.latitude,
+          a.longitude
+        );
+        const distanceB = calculateDistance(
+          userLocation.lat,
+          userLocation.lng,
+          b.latitude,
+          b.longitude
+        );
+        return distanceA - distanceB; // Closest first
+      });
+    }
+
+    return result;
+  }, [posts, sortBy, userLocation]);
 
   // Get user's current location
   useEffect(() => {
@@ -157,20 +219,6 @@ export default function HomePage() {
       );
     }
   }, []);
-
-  // Update posts with distances when user location changes
-  useEffect(() => {
-    if (userLocation) {
-      setPosts(prevPosts => 
-        prevPosts.map(post => ({
-          ...post,
-          distance: post.latitude && post.longitude
-            ? calculateDistance(userLocation.lat, userLocation.lng, post.latitude, post.longitude)
-            : undefined
-        }))
-      );
-    }
-  }, [userLocation]);
 
   // Safely handle the email parameter
   const openChatWithUser = (userEmail: string | undefined) => {
@@ -235,6 +283,7 @@ export default function HomePage() {
             <p className="text-gray-300 text-sm mt-1">
               {new Date(event.startDate || '').toLocaleDateString()} - {new Date(event.endDate || '').toLocaleDateString()}
             </p>
+            
             {event.distance && (
               <p className="text-gray-300 text-sm mt-1 flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -306,14 +355,34 @@ export default function HomePage() {
               longitude: post.longitude || 0,
               createdBy: post.createdBy || 'Anonymous',
               imageUrl: post.images?.[0] || null,
-              distance: post.distance
+              distance: post.distance?.toString() || '0'
             }))}
           />
         </div>
 
+        {/* Sorting Controls */}
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <label className="text-gray-300">Sort by:</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'distance' | 'latest')}
+              className="bg-gray-800 text-white px-4 py-2 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="latest">Latest</option>
+              <option value="distance">Distance</option>
+            </select>
+          </div>
+          {sortBy === 'distance' && !userLocation && (
+            <p className="text-yellow-500 text-sm">
+              Please allow location access to sort by distance
+            </p>
+          )}
+        </div>
+
         {/* Events Grid Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {posts.map((post) => (
+          {filteredPosts.map((post) => (
             <EventCard key={post.docId} event={post} />
           ))}
         </div>

@@ -14,6 +14,7 @@ interface Event {
 
 interface EventMapProps {
   events: Event[];
+  onDistanceChange?: (distance: number) => void;
 }
 
 // Default image URL
@@ -28,7 +29,7 @@ declare global {
   }
 }
 
-export default function EventMap({ events }: EventMapProps) {
+export default function EventMap({ events, onDistanceChange }: EventMapProps) {
   const router = useRouter();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
@@ -510,8 +511,11 @@ export default function EventMap({ events }: EventMapProps) {
                 const value = e.target.value;
                 if (value === 'custom') {
                   setMaxDistance(null);
+                  onDistanceChange?.(null);
                 } else {
-                  setMaxDistance(value ? Number(value) : null);
+                  const distance = value ? Number(value) : null;
+                  setMaxDistance(distance);
+                  onDistanceChange?.(distance);
                 }
               }}
               className="ml-2 bg-gray-800 text-white rounded px-2 py-1"
@@ -560,13 +564,21 @@ export default function EventMap({ events }: EventMapProps) {
               <span className="text-white">m</span>
             </div>
             <button
-              onClick={applyCustomDistance}
+              onClick={() => {
+                const totalDistance = customDistance.km + (customDistance.m / 1000);
+                setMaxDistance(totalDistance);
+                onDistanceChange?.(totalDistance);
+              }}
               className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1 rounded"
             >
               Apply
             </button>
             <button
-              onClick={resetFilter}
+              onClick={() => {
+                setMaxDistance(null);
+                onDistanceChange?.(null);
+                setCustomDistance({ km: 0, m: 0 });
+              }}
               className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-1 rounded"
             >
               Show All
@@ -578,42 +590,6 @@ export default function EventMap({ events }: EventMapProps) {
       {/* Map Section */}
       <div className="w-full h-[400px] rounded-lg overflow-hidden shadow-lg">
         <div ref={mapRef} className="w-full h-full" />
-      </div>
-
-      {/* Events Grid Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredEvents.map(event => (
-          <div 
-            key={event.id}
-            className="bg-gray-800 rounded-lg overflow-hidden shadow-lg cursor-pointer hover:bg-gray-700 transition-colors transform hover:scale-105 duration-300"
-            onClick={() => router.push(`/events/${event.id}`)}
-          >
-            <div className="relative h-64">
-              <img 
-                src={event.imageUrl || DEFAULT_IMAGE} 
-                alt={event.eventName} 
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = DEFAULT_IMAGE;
-                }}
-              />
-            </div>
-            <div className="p-4">
-              <h3 className="font-bold text-purple-400 text-xl mb-2">{event.eventName}</h3>
-              <p className="text-gray-400 text-base">Created by: {event.createdBy}</p>
-              {event.distance && (
-                <p className="text-gray-400 text-base mt-1 flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  {event.distance} away
-                </p>
-              )}
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );
