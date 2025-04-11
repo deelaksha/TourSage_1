@@ -26,6 +26,7 @@ interface Post {
   userId?: string;
   createdAt?: any;
   updatedAt?: any;
+  distance?: string;
   [key: string]: any;
 }
 
@@ -53,6 +54,8 @@ export default function HomePage() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [distanceFilter, setDistanceFilter] = useState<number>(10); // Default 10km radius
 
   useEffect(() => {
     // Initialize periodic cleanup
@@ -93,7 +96,17 @@ export default function HomePage() {
           ? postList.filter((post) => post.createdBy && post.createdBy !== currentUserEmail)
           : postList;
 
-        setPosts(filteredPosts);
+        // Calculate distances if user location is available
+        const postsWithDistances = userLocation
+          ? filteredPosts.map(post => ({
+              ...post,
+              distance: post.latitude && post.longitude
+                ? calculateDistance(userLocation.lat, userLocation.lng, post.latitude, post.longitude)
+                : undefined
+            }))
+          : filteredPosts;
+
+        setPosts(postsWithDistances);
       } catch (error) {
         console.error("Error fetching posts:", error);
       } finally {
@@ -107,6 +120,59 @@ export default function HomePage() {
     return () => unsubscribe();
   }, [router, searchParams]);
 
+  // Function to calculate distance
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): string => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c; // Distance in kilometers
+
+    // Format distance
+    if (distance < 1) {
+      return `${Math.round(distance * 1000)} meters`;
+    } else {
+      const km = Math.floor(distance);
+      const meters = Math.round((distance - km) * 1000);
+      return `${km}km ${meters}m`;
+    }
+  };
+
+  // Get user's current location
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.error("Error getting location:", error);
+        }
+      );
+    }
+  }, []);
+
+  // Update posts with distances when user location changes
+  useEffect(() => {
+    if (userLocation) {
+      setPosts(prevPosts => 
+        prevPosts.map(post => ({
+          ...post,
+          distance: post.latitude && post.longitude
+            ? calculateDistance(userLocation.lat, userLocation.lng, post.latitude, post.longitude)
+            : undefined
+        }))
+      );
+    }
+  }, [userLocation]);
+
   // Safely handle the email parameter
   const openChatWithUser = (userEmail: string | undefined) => {
     if (userEmail) {
@@ -114,6 +180,37 @@ export default function HomePage() {
     } else {
       console.error("Cannot open chat: no email provided");
     }
+  };
+
+  // Function to filter events by distance
+  const filterEventsByDistance = (events: Post[], maxDistance: number): Post[] => {
+    if (!userLocation) return events;
+    
+    return events.filter(event => {
+      if (!event.latitude || !event.longitude) return false;
+      
+      const distance = calculateDistanceInKm(
+        userLocation.lat,
+        userLocation.lng,
+        event.latitude,
+        event.longitude
+      );
+      
+      return distance <= maxDistance;
+    });
+  };
+
+  // Function to calculate distance in kilometers
+  const calculateDistanceInKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
   };
 
   const EventCard = ({ event }: { event: Post }) => {
@@ -170,6 +267,15 @@ export default function HomePage() {
             <p className="text-gray-300 text-sm mt-1">
               {new Date(event.startDate || '').toLocaleDateString()} - {new Date(event.endDate || '').toLocaleDateString()}
             </p>
+            {event.distance && (
+              <p className="text-gray-300 text-sm mt-1 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                {event.distance} away
+              </p>
+            )}
           </div>
         </div>
         
@@ -223,23 +329,42 @@ export default function HomePage() {
       <div className="container mx-auto px-4 py-8">
         {/* Map Section */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold text-white mb-4">Event Locations</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-white">Event Locations</h2>
+            <div className="flex items-center gap-2">
+              <label htmlFor="distanceFilter" className="text-gray-300">Show events within:</label>
+              <select
+                id="distanceFilter"
+                value={distanceFilter}
+                onChange={(e) => setDistanceFilter(Number(e.target.value))}
+                className="bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value={5}>5 km</option>
+                <option value={10}>10 km</option>
+                <option value={25}>25 km</option>
+                <option value={50}>50 km</option>
+                <option value={100}>100 km</option>
+                <option value={0}>All distances</option>
+              </select>
+            </div>
+          </div>
           <EventMap 
-            events={posts.map(post => ({
+            events={filterEventsByDistance(posts, distanceFilter).map(post => ({
               id: post.docId,
               eventName: post.eventName || 'Unnamed Event',
               latitude: post.latitude || 0,
               longitude: post.longitude || 0,
               createdBy: post.createdBy || 'Anonymous',
-              imageUrl: post.images?.[0] || null // Only pass the first image URL
+              imageUrl: post.images?.[0] || null,
+              distance: post.distance
             }))}
           />
         </div>
 
         {/* Events Grid Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {posts.map((post) => (
-            <EventCard key={post.docId} event={post as Post} />
+          {filterEventsByDistance(posts, distanceFilter).map((post) => (
+            <EventCard key={post.docId} event={post} />
           ))}
         </div>
       </div>

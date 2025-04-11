@@ -9,6 +9,7 @@ interface Event {
   longitude: number;
   createdBy: string;
   imageUrl?: string;
+  distance?: string;
 }
 
 interface EventMapProps {
@@ -34,6 +35,48 @@ export default function EventMap({ events }: EventMapProps) {
   const markers = useRef<google.maps.Marker[]>([]);
   const markerClusterer = useRef<any>(null);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Function to calculate distance and format it
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): string => {
+    if (!window.google || !window.google.maps) return '';
+    
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c; // Distance in kilometers
+
+    // Format distance
+    if (distance < 1) {
+      return `${Math.round(distance * 1000)} meters`;
+    } else {
+      const km = Math.floor(distance);
+      const meters = Math.round((distance - km) * 1000);
+      return `${km}km ${meters}m`;
+    }
+  };
+
+  // Get user's current location
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.error("Error getting location:", error);
+        }
+      );
+    }
+  }, []);
 
   // Log events when they change
   useEffect(() => {
@@ -196,8 +239,16 @@ export default function EventMap({ events }: EventMapProps) {
       return isValid;
     });
 
+    // Calculate distances for each event
+    const eventsWithDistances = validEvents.map(event => ({
+      ...event,
+      distance: userLocation 
+        ? calculateDistance(userLocation.lat, userLocation.lng, event.latitude, event.longitude)
+        : ''
+    }));
+
     // Group events by location
-    const locationGroups = validEvents.reduce((groups, event) => {
+    const locationGroups = eventsWithDistances.reduce((groups, event) => {
       const key = `${event.latitude.toFixed(6)}_${event.longitude.toFixed(6)}`;
       if (!groups[key]) {
         groups[key] = [];
@@ -239,6 +290,15 @@ export default function EventMap({ events }: EventMapProps) {
                 <div class="p-4">
                   <h3 class="font-bold text-purple-400 text-lg mb-2">${events[0].eventName}</h3>
                   <p class="text-gray-400 text-sm">Created by: ${events[0].createdBy}</p>
+                  ${events[0].distance ? `
+                    <p class="text-gray-400 text-sm mt-1 flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      ${events[0].distance} away
+                    </p>
+                  ` : ''}
                 </div>
               </div>
             </div>
@@ -259,6 +319,15 @@ export default function EventMap({ events }: EventMapProps) {
                     <div class="p-3">
                       <h4 class="font-medium text-purple-400 text-sm mb-1">${event.eventName}</h4>
                       <p class="text-gray-400 text-xs">Created by: ${event.createdBy}</p>
+                      ${event.distance ? `
+                        <p class="text-gray-400 text-xs mt-1 flex items-center">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          ${event.distance} away
+                        </p>
+                      ` : ''}
                     </div>
                   </div>
                 `).join('')}
@@ -340,7 +409,7 @@ export default function EventMap({ events }: EventMapProps) {
       });
       map.fitBounds(bounds);
     }
-  }, [events, isScriptLoaded, router]);
+  }, [events, isScriptLoaded, router, userLocation]);
 
   return (
     <div className="w-full h-[400px] rounded-lg overflow-hidden shadow-lg">
