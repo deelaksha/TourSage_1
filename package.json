@@ -10,13 +10,18 @@
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.6",
+    "@react-three/drei": "^10.0.6",
+    "@react-three/fiber": "^9.1.2",
     "@types/google.maps": "^3.58.1",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "firebase": "^11.6.0",
+    "framer-motion": "^12.6.5",
+    "gsap": "^3.12.7",
     "next": "15.3.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "three": "^0.175.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

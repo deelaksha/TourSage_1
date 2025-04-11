@@ -5,17 +5,33 @@ import { PostType } from '../app/types';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
+interface Shop {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  category: string;
+  description: string;
+  images: string[];
+  createdBy: string;
+  userId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 interface PostData {
   eventName: string;
   startDate: string;
   endDate: string;
   textMessage?: string;
-  voiceMessage?: File | Blob;
+  voiceMessage?: Blob | null;
   images?: File[];
   latitude: number;
   longitude: number;
   createdBy: string;
-  userId?: string;
+  creatorName: string;
+  userId: string;
+  categories: string[];
 }
 
 export const sendMessage = async (chatId: string, sender: string, receiver: string, text: string) => {
@@ -44,6 +60,17 @@ export const createPost = async (postData: PostData): Promise<string> => {
     if (!currentUser) {
       throw new Error('User must be authenticated to create a post');
     }
+
+    // Get the user's display name
+    const creatorName = currentUser.displayName || currentUser.email?.split('@')[0] || 'User';
+
+    console.log('Starting post creation with data:', {
+      ...postData,
+      voiceMessage: postData.voiceMessage ? 'Voice message present' : 'No voice message',
+      images: postData.images ? `${postData.images.length} images` : 'No images',
+      categories: postData.categories,
+      creatorName
+    });
 
     // Upload voice message if exists
     let voiceMessageUrl = null;
@@ -81,12 +108,20 @@ export const createPost = async (postData: PostData): Promise<string> => {
       latitude: postData.latitude,
       longitude: postData.longitude,
       createdBy: postData.createdBy,
+      creatorName: creatorName,
       userId: currentUser.uid,
+      categories: postData.categories,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     };
 
-    console.log('Creating post with data:', post);
+    console.log('Creating post document with data:', {
+      ...post,
+      voiceMessage: post.voiceMessage ? 'Voice message URL present' : 'No voice message',
+      images: post.images.length > 0 ? `${post.images.length} image URLs` : 'No images',
+      categories: post.categories
+    });
+
     await setDoc(postRef, post);
     console.log('Post created successfully with ID:', postId);
 
@@ -110,6 +145,7 @@ export const fetchPosts = async (): Promise<PostType[]> => {
     latitude: doc.data().latitude || 0,
     longitude: doc.data().longitude || 0,
     createdBy: doc.data().createdBy || '',
+    categories: doc.data().categories || [],
     timestamp: doc.data().timestamp || new Date()
   }));
 };
@@ -122,6 +158,7 @@ export const getPostById = async (postId: string): Promise<any> => {
 
     if (docSnap.exists()) {
       const data = docSnap.data();
+      console.log('Fetched post data:', data); // Debug log
       return {
         id: docSnap.id,
         eventName: data.eventName,
@@ -134,6 +171,7 @@ export const getPostById = async (postId: string): Promise<any> => {
         longitude: data.longitude,
         createdBy: data.createdBy,
         userId: data.userId,
+        categories: data.categories || [], // Ensure categories are included
         createdAt: data.createdAt,
         updatedAt: data.updatedAt
       };
@@ -214,4 +252,27 @@ export const startPeriodicCleanup = () => {
 
   // Also run immediately on startup
   cleanupExpiredEvents().catch(console.error);
+};
+
+export const getShops = async (): Promise<Shop[]> => {
+  try {
+    const db = getFirestore();
+    const snapshot = await getDocs(collection(db, 'shops'));
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      name: doc.data().name || '',
+      latitude: doc.data().latitude || 0,
+      longitude: doc.data().longitude || 0,
+      category: doc.data().category || '',
+      description: doc.data().description || '',
+      images: doc.data().images || [],
+      createdBy: doc.data().createdBy || '',
+      userId: doc.data().userId || '',
+      createdAt: doc.data().createdAt || new Date(),
+      updatedAt: doc.data().updatedAt || new Date()
+    }));
+  } catch (error) {
+    console.error('Error fetching shops:', error);
+    throw error;
+  }
 };

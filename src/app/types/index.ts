@@ -23,6 +23,7 @@ export type PostType = {
   latitude: number;
   longitude: number;
   createdBy: string;
+  categories: string[];
   timestamp: any;
 };
 

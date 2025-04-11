@@ -23,6 +23,19 @@ export default function CreatePostPage() {
   const [images, setImages] = useState<File[]>([]);
   const [location, setLocation] = useState<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
   const [user, setUser] = useState<any>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+
+  const eventCategories = [
+    "Cultural Events",
+    "Art and Entertainment Events",
+    "Music and Dance Festivals",
+    "Festivals and Fairs",
+    "Historical and Heritage Events",
+    "Tourism Promotion Events",
+    "Sports and Adventure Events",
+    "Nature and Eco-Tourism Events",
+    "Educational and Intellectual Events"
+  ];
 
   useEffect(() => {
     // Client-side only code
@@ -131,6 +144,16 @@ export default function CreatePostPage() {
     setError(null);
   };
 
+  const handleCategoryChange = (category: string) => {
+    setCategories(prev => {
+      if (prev.includes(category)) {
+        return prev.filter(cat => cat !== category);
+      } else {
+        return [...prev, category];
+      }
+    });
+  };
+
   const handleSubmit = async () => {
     if (!user || !user.email || !user.uid) {
       setError('Please log in to create an event');
@@ -138,7 +161,7 @@ export default function CreatePostPage() {
       return;
     }
 
-    if (!eventName || !startDate || !endDate || (!textMessage && !voiceMessage)) {
+    if (!eventName || !startDate || !endDate || (!textMessage && !voiceMessage) || categories.length === 0) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -169,7 +192,9 @@ export default function CreatePostPage() {
         latitude: location.lat,
         longitude: location.lng,
         createdBy: user.email,
-        userId: user.uid
+        creatorName: user.displayName || user.email.split('@')[0] || 'User',
+        userId: user.uid,
+        categories
       };
 
       console.log('Submitting post data:', postData);
@@ -255,6 +280,26 @@ export default function CreatePostPage() {
                 value={eventName}
                 onChange={(e) => setEventName(e.target.value)}
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">Categories*</label>
+              <div className="grid grid-cols-2 gap-2">
+                {eventCategories.map((cat) => (
+                  <label key={cat} className="flex items-center space-x-2 p-2 bg-gray-700 rounded-lg hover:bg-gray-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={categories.includes(cat)}
+                      onChange={() => handleCategoryChange(cat)}
+                      className="form-checkbox h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-white">{cat}</span>
+                  </label>
+                ))}
+              </div>
+              {categories.length === 0 && (
+                <p className="text-sm text-red-400 mt-1">Please select at least one category</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -384,9 +429,9 @@ export default function CreatePostPage() {
               
               <button
                 onClick={handleSubmit}
-                disabled={isSubmitting || !eventName || !startDate || !endDate || (!textMessage && !voiceMessage) || location.lat === 0}
+                disabled={isSubmitting || !eventName || !startDate || !endDate || (!textMessage && !voiceMessage) || location.lat === 0 || categories.length === 0}
                 className={`px-6 py-3 rounded-lg text-white font-medium flex items-center gap-2 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50
-                  ${(!eventName || !startDate || !endDate || (!textMessage && !voiceMessage) || location.lat === 0)
+                  ${(!eventName || !startDate || !endDate || (!textMessage && !voiceMessage) || location.lat === 0 || categories.length === 0)
                     ? 'bg-gray-600 cursor-not-allowed'
                     : 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600'}`}
               >

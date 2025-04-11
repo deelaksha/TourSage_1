@@ -28,6 +28,7 @@ interface Post {
   updatedAt?: any;
   distance?: number;
   distanceInKm?: number;
+  categories?: string[];
   [key: string]: any;
 }
 
@@ -298,6 +299,20 @@ export default function HomePage() {
         
         <div className="p-4">
           <p className="text-gray-300 line-clamp-2">{event.textMessage || event.message || ''}</p>
+          
+          {/* Categories Section */}
+          {event.categories && event.categories.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {event.categories.map((category, index) => (
+                <span
+                  key={index}
+                  className="px-2 py-1 bg-purple-600/20 text-purple-400 text-xs rounded-full"
+                >
+                  {category}
+                </span>
+              ))}
+            </div>
+          )}
           
           <div className="mt-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
