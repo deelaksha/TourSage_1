@@ -63,16 +63,7 @@ export default function Header() {
             </div>
           )}
 
-          {/* Create Post Button */}
-          {userName && (
-            <button
-              onClick={() => router.push('/posts/create')}
-              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-medium rounded-lg transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-            >
-              + Create Post
-            </button>
-          )}
-
+          
           {/* Logout Button */}
           {userName && (
   <>

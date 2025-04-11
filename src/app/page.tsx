@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { collection, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../firebase/config';
@@ -17,31 +17,38 @@ interface Post {
 }
 
 export default function HomePage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [posts, setPosts] = useState<Post[]>([]);
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const router = useRouter();
+  const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
-    // Handle auth state and redirect to login if not authenticated
+    // Check for success parameter
+    if (searchParams.get('success') === 'true') {
+      setShowSuccess(true);
+      // Remove the success parameter from URL
+      router.replace('/');
+      // Hide success message after 3 seconds
+      const timer = setTimeout(() => {
+        setShowSuccess(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
+      if (!user) {
+        router.push('/login');
+      } else {
         // Type-safe property access with optional chaining and fallbacks
         setCurrentUserName(user?.displayName || user?.email || 'User');
         setCurrentUserEmail(user?.email || null);
-      } else {
-        router.push('/messaging/login'); // Auto-redirect if user is not logged in
       }
-      setIsLoading(false);
     });
 
-    return () => unsubscribe();
-  }, [router]);
-
-  useEffect(() => {
     const fetchPosts = async () => {
-      setIsLoading(true);
       try {
         const querySnapshot = await getDocs(collection(db, 'posts'));
         const postList: Post[] = querySnapshot.docs.map((doc) => ({
@@ -64,7 +71,9 @@ export default function HomePage() {
 
     // Fetch posts regardless of user email status
     fetchPosts();
-  }, [currentUserEmail]);
+
+    return () => unsubscribe();
+  }, [router, searchParams, currentUserEmail]);
 
   // Safely handle the email parameter
   const openChatWithUser = (userEmail: string | undefined) => {
@@ -75,10 +84,32 @@ export default function HomePage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-900 text-white">
       <Header />
       
+      {showSuccess && (
+        <div className="fixed top-4 right-4 z-50">
+          <div className="bg-green-900 bg-opacity-90 border border-green-800 rounded-lg p-4 text-green-300 flex items-center gap-2 shadow-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span>Event created successfully!</span>
+          </div>
+        </div>
+      )}
+
       {/* Background pattern overlay */}
       <div className="fixed inset-0 bg-gray-900 z-0 opacity-50" style={{
         backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPost } from '../../../firebase/firestore';
 import LocationPicker from '../../../components/LocationPicker';
@@ -9,17 +9,136 @@ export default function CreatePostPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   
-  // Safely access localStorage only on client side
-  const user = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {};
-
-  const [name, setName] = useState('');
-  const [title, setTitle] = useState('');
-  const [message, setMessage] = useState('');
+  const [eventName, setEventName] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [textMessage, setTextMessage] = useState('');
+  const [voiceMessage, setVoiceMessage] = useState<Blob | null>(null);
+  const [images, setImages] = useState<File[]>([]);
   const [location, setLocation] = useState<{ lat: number; lng: number }>({ lat: 0, lng: 0 });
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    // Client-side only code
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    } else {
+      router.push('/login');
+    }
+    setIsLoading(false);
+  }, [router]);
+
+  const startRecording = async () => {
+    try {
+      // Stop any existing recording first
+      if (mediaRecorderRef.current && isRecording) {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+      }
+
+      // Clean up previous recording
+      if (voiceMessage) {
+        URL.revokeObjectURL(URL.createObjectURL(voiceMessage));
+        setVoiceMessage(null);
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        setVoiceMessage(audioBlob);
+        // Stop all tracks in the stream
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      setError('Failed to access microphone. Please check your permissions.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const newImages = Array.from(e.target.files);
+      
+      // Check each image size
+      const oversizedImages = newImages.filter(file => file.size > 1024 * 1024); // 1MB in bytes
+      
+      if (oversizedImages.length > 0) {
+        setError(`The following images exceed 1MB limit: ${oversizedImages.map(img => img.name).join(', ')}`);
+        return;
+      }
+      
+      setImages([...images, ...newImages]);
+      setError(null);
+    }
+  };
+
+  const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedDate = new Date(e.target.value);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (selectedDate < today) {
+      setError('Start date cannot be in the past');
+      return;
+    }
+
+    // If end date is already set and is before the new start date, clear it
+    if (endDate && new Date(endDate) < selectedDate) {
+      setEndDate('');
+    }
+
+    setStartDate(e.target.value);
+    setError(null);
+  };
+
+  const handleEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedDate = new Date(e.target.value);
+    const startDateObj = new Date(startDate);
+
+    if (selectedDate < startDateObj) {
+      setError('End date must be after start date');
+      return;
+    }
+
+    setEndDate(e.target.value);
+    setError(null);
+  };
 
   const handleSubmit = async () => {
-    if (!name || !message || !title) {
+    if (!user || !user.email) {
+      setError('Please log in to create an event');
+      router.push('/login');
+      return;
+    }
+
+    if (!eventName || !startDate || !endDate || (!textMessage && !voiceMessage)) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -29,28 +148,63 @@ export default function CreatePostPage() {
       return;
     }
 
+    const totalSize = images.reduce((total, file) => total + file.size, 0);
+    if (totalSize > 10 * 1024 * 1024) {
+      setError('Total size of all images cannot exceed 10MB');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setError(null);
+      setSuccess(null);
       
-      await createPost({
-        name,
-        title,
-        message,
+      const postData = {
+        eventName,
+        startDate,
+        endDate,
+        textMessage,
+        voiceMessage,
+        images,
         latitude: location.lat,
         longitude: location.lng,
         createdBy: user.email,
-        timestamp: new Date(),
-      });
-      
-      router.push('/');
-    } catch (error) {
+        userId: user.uid,
+      };
+
+      await createPost(postData);
+      // Redirect to home page with success parameter
+      router.push('/?success=true');
+    } catch (error: any) {
       console.error('Post creation failed:', error);
-      setError('Failed to create post. Please try again.');
+      if (error.code === 'permission-denied') {
+        setError('You do not have permission to create events. Please log in again.');
+        router.push('/login');
+      } else if (error.code === 'unauthenticated') {
+        setError('Please log in to create an event');
+        router.push('/login');
+      } else {
+        setError('Failed to create post. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Will be redirected by useEffect
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
@@ -66,9 +220,9 @@ export default function CreatePostPage() {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
-              Create a New Post
+              Create a New Event
             </h1>
-            <p className="text-gray-200 mt-1">Share your thoughts with the community</p>
+            <p className="text-gray-200 mt-1">Share your event with the community</p>
           </div>
           
           <div className="bg-gray-800 rounded-b-lg shadow-xl border border-gray-700 p-6 space-y-6">
@@ -78,40 +232,130 @@ export default function CreatePostPage() {
               </div>
             )}
             
+            {success && (
+              <div className="p-4 bg-green-900 bg-opacity-20 border border-green-800 rounded-lg text-green-300 text-sm flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                {success}
+              </div>
+            )}
+
             <div className="space-y-2">
-              <label htmlFor="name" className="block text-sm font-medium text-gray-300">Your Name*</label>
+              <label htmlFor="eventName" className="block text-sm font-medium text-gray-300">Event Name*</label>
               <input
-                id="name"
+                id="eventName"
                 type="text"
-                placeholder="Enter your name"
+                placeholder="Enter event name"
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={eventName}
+                onChange={(e) => setEventName(e.target.value)}
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label htmlFor="startDate" className="block text-sm font-medium text-gray-300">Start Date*</label>
+                <input
+                  id="startDate"
+                  type="datetime-local"
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white"
+                  value={startDate}
+                  onChange={handleStartDateChange}
+                  min={new Date().toISOString().slice(0, 16)}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label htmlFor="endDate" className="block text-sm font-medium text-gray-300">End Date*</label>
+                <input
+                  id="endDate"
+                  type="datetime-local"
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white"
+                  value={endDate}
+                  onChange={handleEndDateChange}
+                  min={startDate || new Date().toISOString().slice(0, 16)}
+                  disabled={!startDate}
+                />
+              </div>
             </div>
             
             <div className="space-y-2">
-              <label htmlFor="title" className="block text-sm font-medium text-gray-300">Post Title*</label>
-              <input
-                id="title"
-                type="text"
-                placeholder="Give your post a title"
-                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label htmlFor="message" className="block text-sm font-medium text-gray-300">Message*</label>
+              <label htmlFor="textMessage" className="block text-sm font-medium text-gray-300">Text Message</label>
               <textarea
-                id="message"
+                id="textMessage"
                 placeholder="What would you like to share?"
                 rows={5}
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white placeholder-gray-400 resize-none"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                value={textMessage}
+                onChange={(e) => setTextMessage(e.target.value)}
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">Voice Message</label>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`px-4 py-2 rounded-lg ${
+                    isRecording 
+                      ? 'bg-red-600 hover:bg-red-700' 
+                      : 'bg-purple-600 hover:bg-purple-700'
+                  } text-white transition-colors duration-300`}
+                >
+                  {isRecording ? 'Stop Recording' : 'Start Recording'}
+                </button>
+                {voiceMessage && (
+                  <audio controls className="flex-1">
+                    <source src={URL.createObjectURL(voiceMessage)} type="audio/wav" />
+                  </audio>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">
+                Upload Images
+                <span className="text-xs text-gray-400 ml-2">(Max 1MB per image, 10MB total)</span>
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleImageUpload}
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-white"
+              />
+              {images.length > 0 && (
+                <div className="mt-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    {images.map((image, index) => (
+                      <div key={index} className="relative">
+                        <img
+                          src={URL.createObjectURL(image)}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-24 object-cover rounded-lg"
+                        />
+                        <button
+                          onClick={() => {
+                            const newImages = [...images];
+                            newImages.splice(index, 1);
+                            setImages(newImages);
+                          }}
+                          className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-700"
+                        >
+                          ×
+                        </button>
+                        <div className="absolute bottom-1 left-1 bg-black bg-opacity-50 text-white text-xs px-1 rounded">
+                          {(image.size / 1024).toFixed(1)}KB
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-gray-400">
+                    Total size: {(images.reduce((total, file) => total + file.size, 0) / 1024 / 1024).toFixed(2)}MB
+                  </div>
+                </div>
+              )}
             </div>
             
             <div className="space-y-2">
@@ -136,9 +380,9 @@ export default function CreatePostPage() {
               
               <button
                 onClick={handleSubmit}
-                disabled={isSubmitting || !name || !title || !message || location.lat === 0}
+                disabled={isSubmitting || !eventName || !startDate || !endDate || (!textMessage && !voiceMessage) || location.lat === 0}
                 className={`px-6 py-3 rounded-lg text-white font-medium flex items-center gap-2 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50
-                  ${(!name || !title || !message || location.lat === 0)
+                  ${(!eventName || !startDate || !endDate || (!textMessage && !voiceMessage) || location.lat === 0)
                     ? 'bg-gray-600 cursor-not-allowed'
                     : 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600'}`}
               >
@@ -152,7 +396,7 @@ export default function CreatePostPage() {
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                     </svg>
-                    <span>Publish Post</span>
+                    <span>Publish Event</span>
                   </>
                 )}
               </button>

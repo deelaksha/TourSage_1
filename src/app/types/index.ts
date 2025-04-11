@@ -14,12 +14,16 @@ export interface MessageType {
 
 export type PostType = {
   id: string;
-  name: string;
-  message: string;
+  eventName: string;
+  startDate: string;
+  endDate: string;
+  textMessage?: string;
+  voiceMessage?: string;
+  images?: string[];
   latitude: number;
   longitude: number;
   createdBy: string;
-  timestamp: any; // Or Firebase Timestamp type
+  timestamp: any;
 };
 
 export type LocationType = { lat: number; lng: number };
