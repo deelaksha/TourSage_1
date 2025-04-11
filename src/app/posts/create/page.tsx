@@ -132,9 +132,9 @@ export default function CreatePostPage() {
   };
 
   const handleSubmit = async () => {
-    if (!user || !user.email) {
+    if (!user || !user.email || !user.uid) {
       setError('Please log in to create an event');
-      router.push('/login');
+      router.push('/messaging/login');
       return;
     }
 
@@ -169,20 +169,24 @@ export default function CreatePostPage() {
         latitude: location.lat,
         longitude: location.lng,
         createdBy: user.email,
-        userId: user.uid,
+        userId: user.uid
       };
 
-      await createPost(postData);
-      // Redirect to home page with success parameter
+      console.log('Submitting post data:', postData);
+
+      const postId = await createPost(postData);
+      console.log('Post created successfully with ID:', postId);
+      
+      setSuccess('Event created successfully!');
       router.push('/?success=true');
     } catch (error: any) {
       console.error('Post creation failed:', error);
       if (error.code === 'permission-denied') {
         setError('You do not have permission to create events. Please log in again.');
-        router.push('/login');
+        router.push('/messaging/login');
       } else if (error.code === 'unauthenticated') {
         setError('Please log in to create an event');
-        router.push('/login');
+        router.push('/messaging/login');
       } else {
         setError('Failed to create post. Please try again.');
       }
