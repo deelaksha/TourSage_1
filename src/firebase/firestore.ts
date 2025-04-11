@@ -1,5 +1,5 @@
-import { collection, addDoc, query, orderBy, onSnapshot, getDocs, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
+import { collection, addDoc, query, orderBy, onSnapshot, getDocs, doc, getDoc, setDoc, serverTimestamp, deleteDoc, where } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, deleteObject } from 'firebase/storage';
 import { db } from './config';
 import { PostType } from '../app/types';
 import { getAuth } from 'firebase/auth';
@@ -114,8 +114,104 @@ export const fetchPosts = async (): Promise<PostType[]> => {
   }));
 };
 
-export const getPostById = async (id: string) => {
-  const docRef = doc(db, 'posts', id);
-  const docSnap = await getDoc(docRef);
-  return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+export const getPostById = async (postId: string): Promise<any> => {
+  try {
+    const db = getFirestore();
+    const docRef = doc(db, 'posts', postId);
+    const docSnap = await getDoc(docRef);
+
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        eventName: data.eventName,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        textMessage: data.textMessage,
+        voiceMessage: data.voiceMessage,
+        images: data.images || [],
+        latitude: data.latitude,
+        longitude: data.longitude,
+        createdBy: data.createdBy,
+        userId: data.userId,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt
+      };
+    } else {
+      console.log('No such document!');
+      return null;
+    }
+  } catch (error) {
+    console.error('Error getting document:', error);
+    throw error;
+  }
+};
+
+export const cleanupExpiredEvents = async () => {
+  try {
+    const db = getFirestore();
+    const storage = getStorage();
+    const now = new Date();
+    
+    // Query for expired events
+    const eventsRef = collection(db, 'posts');
+    const q = query(eventsRef, where('endDate', '<', now.toISOString()));
+    const querySnapshot = await getDocs(q);
+
+    // Process each expired event
+    for (const doc of querySnapshot.docs) {
+      const eventData = doc.data();
+      
+      // Delete images from storage
+      if (eventData.images && Array.isArray(eventData.images)) {
+        for (const imageUrl of eventData.images) {
+          try {
+            // Extract the path from the full URL
+            const path = decodeURIComponent(imageUrl.split('/o/')[1].split('?')[0]);
+            const imageRef = ref(storage, path);
+            await deleteObject(imageRef);
+            console.log(`Deleted image: ${path}`);
+          } catch (error) {
+            console.error(`Error deleting image: ${error}`);
+          }
+        }
+      }
+
+      // Delete voice message from storage if exists
+      if (eventData.voiceMessage) {
+        try {
+          const path = decodeURIComponent(eventData.voiceMessage.split('/o/')[1].split('?')[0]);
+          const voiceRef = ref(storage, path);
+          await deleteObject(voiceRef);
+          console.log(`Deleted voice message: ${path}`);
+        } catch (error) {
+          console.error(`Error deleting voice message: ${error}`);
+        }
+      }
+
+      // Delete the event document
+      await deleteDoc(doc.ref);
+      console.log(`Deleted event document: ${doc.id}`);
+    }
+
+    console.log('Cleanup completed successfully');
+  } catch (error) {
+    console.error('Error during cleanup:', error);
+    throw error;
+  }
+};
+
+// Function to start periodic cleanup
+export const startPeriodicCleanup = () => {
+  // Run cleanup every hour
+  setInterval(async () => {
+    try {
+      await cleanupExpiredEvents();
+    } catch (error) {
+      console.error('Error in periodic cleanup:', error);
+    }
+  }, 60 * 60 * 1000); // 1 hour in milliseconds
+
+  // Also run immediately on startup
+  cleanupExpiredEvents().catch(console.error);
 };

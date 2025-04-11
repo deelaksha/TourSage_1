@@ -1,71 +1,87 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../../firebase/config';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { getPostById } from '../../../firebase/firestore';
+import Image from 'next/image';
 import Header from '@/app/Header/page';
 
 interface Event {
-  docId: string;
+  id: string;
   eventName: string;
   startDate: string;
   endDate: string;
-  textMessage?: string;
-  voiceMessage?: string;
-  images?: string[];
+  textMessage: string;
+  voiceMessage: string;
+  images: string[];
+  latitude: number;
+  longitude: number;
   createdBy: string;
-  name?: string;
-  [key: string]: any;
+  userId: string;
+  createdAt: any;
+  updatedAt: any;
 }
 
-export default function EventDetailsPage({ params }: { params: { id: string } }) {
+export default function EventPage() {
+  const params = useParams();
   const router = useRouter();
   const [event, setEvent] = useState<Event | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchEvent = async () => {
       try {
-        const docRef = doc(db, 'posts', params.id);
-        const docSnap = await getDoc(docRef);
-
-        if (docSnap.exists()) {
-          setEvent({
-            docId: docSnap.id,
-            ...docSnap.data()
-          });
+        const eventId = params.id as string;
+        const eventData = await getPostById(eventId);
+        if (eventData) {
+          setEvent(eventData as Event);
         } else {
           setError('Event not found');
         }
-      } catch (error) {
-        console.error("Error fetching event:", error);
+      } catch (err) {
+        console.error('Error fetching event:', err);
         setError('Failed to load event details');
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     };
 
     fetchEvent();
   }, [params.id]);
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-gray-300">Loading...</p>
+          <p className="mt-4 text-gray-300">Loading event details...</p>
         </div>
       </div>
     );
   }
 
-  if (error || !event) {
+  if (error) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-400">{error || 'Event not found'}</p>
+          <p className="text-red-500">{error}</p>
+          <button
+            onClick={() => router.push('/')}
+            className="mt-4 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white"
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!event) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-300">Event not found</p>
           <button
             onClick={() => router.push('/')}
             className="mt-4 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white"
@@ -99,19 +115,12 @@ export default function EventDetailsPage({ params }: { params: { id: string } })
             </div>
 
             <div className="space-y-6">
-              <div className="flex items-center gap-4 text-gray-300">
-                <div className="flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span>Start: {new Date(event.startDate).toLocaleString()}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span>End: {new Date(event.endDate).toLocaleString()}</span>
-                </div>
+              <div className="flex items-center text-gray-400 text-sm">
+                <span>Created by: {event.createdBy}</span>
+                <span className="mx-2">•</span>
+                <span>From: {new Date(event.startDate).toLocaleDateString()}</span>
+                <span className="mx-2">•</span>
+                <span>To: {new Date(event.endDate).toLocaleDateString()}</span>
               </div>
 
               {event.textMessage && (
@@ -135,12 +144,13 @@ export default function EventDetailsPage({ params }: { params: { id: string } })
                 <div className="bg-gray-700 rounded-lg p-4">
                   <h2 className="text-xl font-semibold mb-4 text-white">Images</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {event.images.map((image, index) => (
+                    {event.images.map((imageUrl, index) => (
                       <div key={index} className="relative aspect-square">
-                        <img
-                          src={image}
+                        <Image
+                          src={imageUrl}
                           alt={`Event image ${index + 1}`}
-                          className="w-full h-full object-cover rounded-lg"
+                          fill
+                          className="object-cover rounded-lg"
                         />
                       </div>
                     ))}
@@ -148,25 +158,12 @@ export default function EventDetailsPage({ params }: { params: { id: string } })
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-4 border-t border-gray-700">
-                <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 flex items-center justify-center">
-                    <span className="text-lg font-bold">
-                      {event.name && typeof event.name === 'string' ? event.name.charAt(0).toUpperCase() : '?'}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-white font-medium">{event.name || 'Anonymous'}</p>
-                    <p className="text-gray-400 text-sm">{event.createdBy}</p>
-                  </div>
-                </div>
-                
-                <button
-                  onClick={() => router.push(`/messaging/chat/${encodeURIComponent(event.createdBy)}`)}
-                  className="px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 rounded-lg text-white font-medium"
-                >
-                  Chat with Organizer
-                </button>
+              <div className="bg-gray-700 rounded-lg p-4">
+                <h2 className="text-xl font-semibold mb-2 text-white">Location</h2>
+                <p className="text-gray-300">
+                  Latitude: {event.latitude}, Longitude: {event.longitude}
+                </p>
+                {/* You can add a map component here to show the location */}
               </div>
             </div>
           </div>

@@ -5,15 +5,43 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { collection, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../firebase/config';
+import { startPeriodicCleanup } from '../firebase/firestore';
 import Header from '@/app/Header/page';
+import Image from 'next/image';
 
 interface Post {
   docId: string;
+  eventName?: string;
   title?: string;
+  startDate?: string;
+  endDate?: string;
+  textMessage?: string;
   message?: string;
-  name?: string;
+  voiceMessage?: string;
+  images?: string[];
+  latitude?: number;
+  longitude?: number;
   createdBy?: string;
+  userId?: string;
+  createdAt?: any;
+  updatedAt?: any;
   [key: string]: any;
+}
+
+interface Event {
+  id: string;
+  eventName: string;
+  startDate: string;
+  endDate: string;
+  textMessage: string;
+  voiceMessage: string;
+  images: string[];
+  latitude: number;
+  longitude: number;
+  createdBy: string;
+  userId: string;
+  createdAt: any;
+  updatedAt: any;
 }
 
 export default function HomePage() {
@@ -26,6 +54,9 @@ export default function HomePage() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
+    // Initialize periodic cleanup
+    startPeriodicCleanup();
+
     // Check for success parameter
     if (searchParams.get('success') === 'true') {
       setShowSuccess(true);
@@ -73,7 +104,7 @@ export default function HomePage() {
     fetchPosts();
 
     return () => unsubscribe();
-  }, [router, searchParams, currentUserEmail]);
+  }, [router, searchParams]);
 
   // Safely handle the email parameter
   const openChatWithUser = (userEmail: string | undefined) => {
@@ -82,6 +113,90 @@ export default function HomePage() {
     } else {
       console.error("Cannot open chat: no email provided");
     }
+  };
+
+  const EventCard = ({ event }: { event: Event }) => {
+    const router = useRouter();
+    const [isHovered, setIsHovered] = useState(false);
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [imageError, setImageError] = useState(false);
+    const [message, setMessage] = useState('');
+    const [messages, setMessages] = useState<any[]>([]);
+
+    const handleCardClick = (e: React.MouseEvent) => {
+      // Prevent navigation if clicking on the chat button
+      if ((e.target as HTMLElement).closest('button')) {
+        return;
+      }
+      router.push(`/events/${event.id}`);
+    };
+
+    const handleChatClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsChatOpen(true);
+      // Redirect to chat page instead of showing modal
+      router.push(`/messaging/chat/${encodeURIComponent(event.createdBy)}`);
+    };
+
+    // Check if current user is the event creator
+    const isEventCreator = currentUserEmail === event.createdBy;
+
+    return (
+      <div 
+        className="bg-gray-800 rounded-lg shadow-lg overflow-hidden cursor-pointer transform transition-all duration-300 hover:scale-105"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={handleCardClick}
+      >
+        <div className="relative h-48">
+          {event.images && event.images.length > 0 && !imageError ? (
+            <Image
+              src={event.images[0]}
+              alt={event.eventName}
+              fill
+              className="object-cover"
+              onError={() => setImageError(true)}
+              priority
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-r from-purple-600 to-indigo-600 flex items-center justify-center">
+              <span className="text-white text-2xl font-bold">No Image</span>
+            </div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-4">
+            <h3 className="text-xl font-bold text-white">{event.eventName}</h3>
+            <p className="text-gray-300 text-sm mt-1">
+              {new Date(event.startDate).toLocaleDateString()} - {new Date(event.endDate).toLocaleDateString()}
+            </p>
+          </div>
+        </div>
+        
+        <div className="p-4">
+          <p className="text-gray-300 line-clamp-2">{event.textMessage}</p>
+          
+          <div className="mt-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 flex items-center justify-center">
+                <span className="text-sm font-bold text-white">
+                  {event.createdBy.charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <span className="text-gray-400 text-sm">{event.createdBy}</span>
+            </div>
+            
+            {!isEventCreator && (
+              <button
+                onClick={handleChatClick}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white text-sm transition-colors duration-300"
+              >
+                Chat
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -132,44 +247,31 @@ export default function HomePage() {
             </div>
           ) : posts.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {posts.map((post, index) => (
-                <div 
-                  key={post.docId || `post-${index}`}
-                  className="bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 overflow-hidden border border-gray-700"
-                >
-                  <div className="p-5">
-                    <h2 className="text-xl font-semibold mb-2 text-white">{post.title || 'Untitled'}</h2>
-                    <p className="text-gray-300 mb-4 line-clamp-3">{post.message || 'No message content'}</p>
-                    
-                    <div className="flex items-center justify-between mt-4">
-                      <div className="flex items-center">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 flex items-center justify-center">
-                          <span className="text-sm font-bold">
-                            {post.name && typeof post.name === 'string' ? post.name.charAt(0).toUpperCase() : '?'}
-                          </span>
-                        </div>
-                        <span className="ml-2 text-gray-400">{post.name || 'Anonymous'}</span>
-                      </div>
-                      
-                      <button
-                        onClick={() => post.createdBy ? openChatWithUser(post.createdBy) : null}
-                        disabled={!post.createdBy}
-                        className={`px-4 py-2 rounded-lg text-white font-medium transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50
-                          ${post.createdBy 
-                            ? 'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600' 
-                            : 'bg-gray-600 cursor-not-allowed'}`}
-                      >
-                        Chat
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              {posts.map((post) => (
+                <EventCard 
+                  key={post.docId} 
+                  event={{
+                    id: post.docId,
+                    eventName: post.eventName || post.title || 'Untitled Event',
+                    startDate: post.startDate || new Date().toISOString(),
+                    endDate: post.endDate || new Date().toISOString(),
+                    textMessage: post.textMessage || post.message || '',
+                    voiceMessage: post.voiceMessage || '',
+                    images: post.images || [],
+                    latitude: post.latitude || 0,
+                    longitude: post.longitude || 0,
+                    createdBy: post.createdBy || 'Anonymous',
+                    userId: post.userId || '',
+                    createdAt: post.createdAt || new Date(),
+                    updatedAt: post.updatedAt || new Date()
+                  }}
+                />
               ))}
             </div>
           ) : (
             <div className="bg-gray-800 border border-gray-700 rounded-lg p-8 text-center">
-              <h3 className="text-xl font-medium text-gray-300">No posts available</h3>
-              <p className="text-gray-400 mt-2">Check back later for new content</p>
+              <h3 className="text-xl font-medium text-gray-300">No events available</h3>
+              <p className="text-gray-400 mt-2">Check back later for new events</p>
             </div>
           )}
         </div>
