@@ -136,21 +136,34 @@ export default function EventMap({ events }: EventMapProps) {
   useEffect(() => {
     if (!isScriptLoaded || !mapRef.current || !window.google) return;
 
-    // Clear existing markers and clusterer
-    if (markerClusterer.current) {
-      markerClusterer.current.clearMarkers();
-    }
-    markers.current.forEach(marker => marker.setMap(null));
-    markers.current = [];
+    // Log all events being passed to the map
+    console.log('Events received by map:', events);
 
-    // Initialize map with default center if no events
-    const defaultCenter = events.length > 0 
-      ? { lat: events[0].latitude, lng: events[0].longitude }
-      : { lat: 0, lng: 0 };
+    // Filter out events with invalid coordinates
+    const validEvents = events.filter(event => {
+      const isValid = !isNaN(event.latitude) && 
+                     !isNaN(event.longitude) && 
+                     event.latitude !== 0 && 
+                     event.longitude !== 0;
+      
+      if (!isValid) {
+        console.warn(`Invalid coordinates for event: ${event.eventName}`, {
+          latitude: event.latitude,
+          longitude: event.longitude,
+          eventId: event.id
+        });
+      }
+      
+      return isValid;
+    });
 
-    const map = new google.maps.Map(mapRef.current, {
-      center: defaultCenter,
-      zoom: events.length > 0 ? 10 : 2,
+    // Log valid events
+    console.log('Valid events after filtering:', validEvents);
+
+    // Create map instance
+    const map = new window.google.maps.Map(mapRef.current, {
+      center: { lat: 0, lng: 0 },
+      zoom: 2,
       styles: [
         {
           featureType: 'all',
@@ -220,35 +233,15 @@ export default function EventMap({ events }: EventMapProps) {
       ]
     });
 
-    mapInstance.current = map;
+    // Create bounds to fit all markers
+    const bounds = new window.google.maps.LatLngBounds();
 
-    // Filter out events with invalid coordinates
-    const validEvents = events.filter(event => {
-      const isValid = !isNaN(event.latitude) && 
-                     !isNaN(event.longitude) && 
-                     event.latitude !== 0 && 
-                     event.longitude !== 0;
-      
-      if (!isValid) {
-        console.warn(`Invalid coordinates for event: ${event.eventName}`, {
-          latitude: event.latitude,
-          longitude: event.longitude
-        });
-      }
-      
-      return isValid;
-    });
-
-    // Calculate distances for each event
-    const eventsWithDistances = validEvents.map(event => ({
-      ...event,
-      distance: userLocation 
-        ? calculateDistance(userLocation.lat, userLocation.lng, event.latitude, event.longitude)
-        : ''
-    }));
+    // Clear existing markers
+    markers.current.forEach(marker => marker.setMap(null));
+    markers.current = [];
 
     // Group events by location
-    const locationGroups = eventsWithDistances.reduce((groups, event) => {
+    const locationGroups = validEvents.reduce((groups, event) => {
       const key = `${event.latitude.toFixed(6)}_${event.longitude.toFixed(6)}`;
       if (!groups[key]) {
         groups[key] = [];
@@ -258,157 +251,132 @@ export default function EventMap({ events }: EventMapProps) {
     }, {} as Record<string, Event[]>);
 
     // Create markers for each location group
-    const newMarkers = Object.entries(locationGroups).map(([location, events]) => {
+    Object.entries(locationGroups).forEach(([location, events]) => {
       const [lat, lng] = location.split('_').map(Number);
-      const isSingleEvent = events.length === 1;
+      const position = { lat, lng };
+      console.log(`Creating marker for location: ${location} with ${events.length} events`);
 
-      try {
-        const marker = new google.maps.Marker({
-          position: { lat, lng },
-          map,
-          title: isSingleEvent ? events[0].eventName : `${events.length} events`,
-          icon: {
-            url: isSingleEvent 
-              ? 'https://maps.google.com/mapfiles/ms/icons/purple-dot.png'
-              : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
-            scaledSize: new google.maps.Size(30, 30)
-          }
-        });
-
-        // Create content for info window
-        const content = isSingleEvent
-          ? `
-            <div class="p-2 max-w-sm">
-              <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg cursor-pointer hover:bg-gray-700 transition-colors" 
-                   onclick="window.dispatchEvent(new CustomEvent('navigateToEvent', { detail: '${events[0].id}' }))">
-                <div class="relative h-48">
-                  <img src="${events[0].imageUrl || DEFAULT_IMAGE}" 
-                       alt="${events[0].eventName}" 
-                       class="w-full h-full object-cover"
-                       onerror="this.src='${DEFAULT_IMAGE}'" />
-                </div>
-                <div class="p-4">
-                  <h3 class="font-bold text-purple-400 text-lg mb-2">${events[0].eventName}</h3>
-                  <p class="text-gray-400 text-sm">Created by: ${events[0].createdBy}</p>
-                  ${events[0].distance ? `
-                    <p class="text-gray-400 text-sm mt-1 flex items-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      ${events[0].distance} away
-                    </p>
-                  ` : ''}
-                </div>
-              </div>
-            </div>
-          `
-          : `
-            <div class="p-2 max-w-sm">
-              <h3 class="font-bold text-red-400 text-lg mb-3">${events.length} Events at this location</h3>
-              <div class="space-y-3 max-h-96 overflow-y-auto">
-                ${events.map(event => `
-                  <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg cursor-pointer hover:bg-gray-700 transition-colors"
-                       onclick="window.dispatchEvent(new CustomEvent('navigateToEvent', { detail: '${event.id}' }))">
-                    <div class="relative h-32">
-                      <img src="${event.imageUrl || DEFAULT_IMAGE}" 
-                           alt="${event.eventName}" 
-                           class="w-full h-full object-cover"
-                           onerror="this.src='${DEFAULT_IMAGE}'" />
-                    </div>
-                    <div class="p-3">
-                      <h4 class="font-medium text-purple-400 text-sm mb-1">${event.eventName}</h4>
-                      <p class="text-gray-400 text-xs">Created by: ${event.createdBy}</p>
-                      ${event.distance ? `
-                        <p class="text-gray-400 text-xs mt-1 flex items-center">
-                          <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                          ${event.distance} away
-                        </p>
-                      ` : ''}
-                    </div>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          `;
-
-        // Add info window
-        const infoWindow = new google.maps.InfoWindow({
-          content,
-          maxWidth: 350
-        });
-
-        // Add event listener for navigation
-        const handleNavigate = (e: CustomEvent) => {
-          router.push(`/events/${e.detail}`);
-        };
-
-        window.addEventListener('navigateToEvent', handleNavigate as EventListener);
-
-        marker.addListener('click', () => {
-          // Close any open info windows
-          markers.current.forEach(m => {
-            const iw = m.get('infoWindow');
-            if (iw) iw.close();
-          });
-          
-          infoWindow.open(map, marker);
-          marker.set('infoWindow', infoWindow);
-        });
-
-        // Cleanup event listener
-        marker.addListener('unmount', () => {
-          window.removeEventListener('navigateToEvent', handleNavigate as EventListener);
-        });
-
-        return marker;
-      } catch (error) {
-        console.error(`Error creating marker for location ${location}:`, error);
-        return null;
-      }
-    }).filter(marker => marker !== null) as google.maps.Marker[];
-
-    markers.current = newMarkers;
-
-    // Create marker clusterer if available
-    if (window.markerClusterer) {
-      markerClusterer.current = new window.markerClusterer.MarkerClusterer({
+      const marker = new window.google.maps.Marker({
+        position,
         map,
-        markers: newMarkers,
-        renderer: {
-          render: ({ count, position }) => {
-            return new google.maps.Marker({
-              position,
-              icon: {
-                path: google.maps.SymbolPath.CIRCLE,
-                scale: 10 + Math.sqrt(count) * 2,
-                fillColor: '#9333ea',
-                fillOpacity: 0.8,
-                strokeColor: '#ffffff',
-                strokeWeight: 2,
-              },
-              label: {
-                text: String(count),
-                color: '#ffffff',
-                fontSize: '12px',
-              },
-            });
-          },
-        },
+        title: events.length === 1 ? events[0].eventName : `${events.length} events`,
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: events.length === 1 ? 8 : 10,
+          fillColor: events.length === 1 ? '#9333ea' : '#ef4444',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 2
+        }
       });
+
+      // Add marker to bounds
+      bounds.extend(position);
+
+      // Create info window content
+      const content = events.length === 1
+        ? `
+          <div class="p-2 max-w-sm">
+            <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg cursor-pointer hover:bg-gray-700 transition-colors" 
+                 onclick="window.dispatchEvent(new CustomEvent('navigateToEvent', { detail: '${events[0].id}' }))">
+              <div class="relative h-48">
+                <img src="${events[0].imageUrl || DEFAULT_IMAGE}" 
+                     alt="${events[0].eventName}" 
+                     class="w-full h-full object-cover"
+                     onerror="this.src='${DEFAULT_IMAGE}'" />
+              </div>
+              <div class="p-4">
+                <h3 class="font-bold text-purple-400 text-lg mb-2">${events[0].eventName}</h3>
+                <p class="text-gray-400 text-sm">Created by: ${events[0].createdBy}</p>
+                ${events[0].distance ? `
+                  <p class="text-gray-400 text-sm mt-1 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    ${events[0].distance} away
+                  </p>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `
+        : `
+          <div class="p-2 max-w-sm">
+            <h3 class="font-bold text-red-400 text-lg mb-3">${events.length} Events at this location</h3>
+            <div class="space-y-3 max-h-96 overflow-y-auto">
+              ${events.map(event => `
+                <div class="bg-gray-800 rounded-lg overflow-hidden shadow-lg cursor-pointer hover:bg-gray-700 transition-colors"
+                     onclick="window.dispatchEvent(new CustomEvent('navigateToEvent', { detail: '${event.id}' }))">
+                  <div class="relative h-32">
+                    <img src="${event.imageUrl || DEFAULT_IMAGE}" 
+                         alt="${event.eventName}" 
+                         class="w-full h-full object-cover"
+                         onerror="this.src='${DEFAULT_IMAGE}'" />
+                  </div>
+                  <div class="p-3">
+                    <h4 class="font-medium text-purple-400 text-sm mb-1">${event.eventName}</h4>
+                    <p class="text-gray-400 text-xs">Created by: ${event.createdBy}</p>
+                    ${event.distance ? `
+                      <p class="text-gray-400 text-xs mt-1 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        ${event.distance} away
+                      </p>
+                    ` : ''}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+
+      // Create info window
+      const infoWindow = new window.google.maps.InfoWindow({
+        content,
+        maxWidth: 300
+      });
+
+      // Add click event to marker
+      marker.addListener('click', () => {
+        // Close all other info windows
+        markers.current.forEach(m => {
+          const iw = m.get('infoWindow');
+          if (iw) iw.close();
+        });
+        
+        // Open this marker's info window
+        infoWindow.open(map, marker);
+        
+        // Store info window reference
+        marker.set('infoWindow', infoWindow);
+      });
+
+      // Store marker reference
+      markers.current.push(marker);
+    });
+
+    // Fit map to bounds if we have valid markers
+    if (validEvents.length > 0) {
+      console.log('Fitting map to bounds with markers:', validEvents.length);
+      map.fitBounds(bounds);
+    } else {
+      console.warn('No valid markers to display on map');
     }
 
-    // Fit map to show all markers
-    if (newMarkers.length > 0) {
-      const bounds = new google.maps.LatLngBounds();
-      newMarkers.forEach(marker => {
-        bounds.extend(marker.getPosition()!);
-      });
-      map.fitBounds(bounds);
-    }
+    // Store map instance
+    mapInstance.current = map;
+
+    // Cleanup function
+    return () => {
+      markers.current.forEach(marker => marker.setMap(null));
+      markers.current = [];
+      if (markerClusterer.current) {
+        markerClusterer.current.clearMarkers();
+      }
+    };
   }, [events, isScriptLoaded, router, userLocation]);
 
   return (

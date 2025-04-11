@@ -55,7 +55,6 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [distanceFilter, setDistanceFilter] = useState<number>(10); // Default 10km radius
 
   useEffect(() => {
     // Initialize periodic cleanup
@@ -182,37 +181,6 @@ export default function HomePage() {
     }
   };
 
-  // Function to filter events by distance
-  const filterEventsByDistance = (events: Post[], maxDistance: number): Post[] => {
-    if (!userLocation) return events;
-    
-    return events.filter(event => {
-      if (!event.latitude || !event.longitude) return false;
-      
-      const distance = calculateDistanceInKm(
-        userLocation.lat,
-        userLocation.lng,
-        event.latitude,
-        event.longitude
-      );
-      
-      return distance <= maxDistance;
-    });
-  };
-
-  // Function to calculate distance in kilometers
-  const calculateDistanceInKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-    const R = 6371; // Earth's radius in kilometers
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-      Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  };
-
   const EventCard = ({ event }: { event: Post }) => {
     const router = useRouter();
     const [isHovered, setIsHovered] = useState(false);
@@ -329,27 +297,9 @@ export default function HomePage() {
       <div className="container mx-auto px-4 py-8">
         {/* Map Section */}
         <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold text-white">Event Locations</h2>
-            <div className="flex items-center gap-2">
-              <label htmlFor="distanceFilter" className="text-gray-300">Show events within:</label>
-              <select
-                id="distanceFilter"
-                value={distanceFilter}
-                onChange={(e) => setDistanceFilter(Number(e.target.value))}
-                className="bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
-                <option value={5}>5 km</option>
-                <option value={10}>10 km</option>
-                <option value={25}>25 km</option>
-                <option value={50}>50 km</option>
-                <option value={100}>100 km</option>
-                <option value={0}>All distances</option>
-              </select>
-            </div>
-          </div>
+          <h2 className="text-2xl font-bold text-white mb-4">Event Locations</h2>
           <EventMap 
-            events={filterEventsByDistance(posts, distanceFilter).map(post => ({
+            events={posts.map(post => ({
               id: post.docId,
               eventName: post.eventName || 'Unnamed Event',
               latitude: post.latitude || 0,
@@ -363,7 +313,7 @@ export default function HomePage() {
 
         {/* Events Grid Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filterEventsByDistance(posts, distanceFilter).map((post) => (
+          {posts.map((post) => (
             <EventCard key={post.docId} event={post} />
           ))}
         </div>
