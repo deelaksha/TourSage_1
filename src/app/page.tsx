@@ -10,6 +10,18 @@ import Header from '@/app/Header/page';
 import Image from 'next/image';
 import EventMap from './components/EventMap';
 
+const eventCategories = [
+  "Cultural Events",
+  "Art and Entertainment Events",
+  "Music and Dance Festivals",
+  "Festivals and Fairs",
+  "Historical and Heritage Events",
+  "Tourism Promotion Events",
+  "Sports and Adventure Events",
+  "Nature and Eco-Tourism Events",
+  "Educational and Intellectual Events"
+];
+
 interface Post {
   docId: string;
   eventName?: string;
@@ -59,6 +71,10 @@ export default function HomePage() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<'distance' | 'latest'>('latest');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [user, setUser] = useState<any>(null);
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     // Initialize periodic cleanup
@@ -201,8 +217,26 @@ export default function HomePage() {
       });
     }
 
-    return result;
-  }, [posts, sortBy, userLocation]);
+    // Filter by search query
+    const searchFiltered = result.filter(post => {
+      const matchesSearch = searchQuery === '' || 
+        post.eventName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        post.textMessage?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        post.message?.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesSearch;
+    });
+
+    // Filter by categories
+    const categoryFiltered = searchFiltered.filter(post => {
+      const matchesCategories = selectedCategories.length === 0 || 
+        (post.categories && post.categories.some(category => 
+          selectedCategories.includes(category)
+        ));
+      return matchesCategories;
+    });
+
+    return categoryFiltered;
+  }, [posts, sortBy, userLocation, searchQuery, selectedCategories]);
 
   // Get user's current location
   useEffect(() => {
@@ -338,6 +372,16 @@ export default function HomePage() {
     );
   };
 
+  const toggleCategory = (category: string) => {
+    setSelectedCategories(prev => {
+      if (prev.includes(category)) {
+        return prev.filter(cat => cat !== category);
+      } else {
+        return [...prev, category];
+      }
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -359,6 +403,59 @@ export default function HomePage() {
       )}
       
       <div className="container mx-auto px-4 py-8">
+        {/* Search and Filter Section */}
+        <div className="mb-8 space-y-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <input
+                type="text"
+                placeholder="Search events..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white transition-colors duration-300"
+            >
+              {showFilters ? 'Hide Filters' : 'Show Filters'}
+            </button>
+          </div>
+
+          {/* Category Filters */}
+          {showFilters && (
+            <div className="bg-gray-800 rounded-lg p-4">
+              <h3 className="text-white font-medium mb-3">Filter by Categories</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                {eventCategories.map((category) => (
+                  <label
+                    key={category}
+                    className={`flex items-center space-x-2 p-2 rounded-lg cursor-pointer transition-colors duration-200 ${
+                      selectedCategories.includes(category)
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedCategories.includes(category)}
+                      onChange={() => toggleCategory(category)}
+                      className="hidden"
+                    />
+                    <span>{category}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Results Count */}
+          <div className="text-gray-400 text-sm">
+            Showing {filteredPosts.length} of {posts.length} events
+          </div>
+        </div>
+
         {/* Map Section */}
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-white mb-4">Event Locations</h2>
